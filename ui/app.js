@@ -1,4 +1,5 @@
 let lastSnapshot = null;
+let marketRemainingSec = null;
 
 const statusEl = document.getElementById('status');
 const snapshotEl = document.getElementById('snapshot');
@@ -28,6 +29,7 @@ async function refreshPrediction(){
 
   const meta = data.marketMeta || {};
   const remain = Number(meta.remainingSec ?? -1);
+  marketRemainingSec = remain >= 0 ? remain : null;
   const remainText = remain >= 0 ? `${remain}s` : 'n/a';
 
   snapshotEl.innerHTML = `
@@ -38,7 +40,7 @@ async function refreshPrediction(){
     <div><strong>P(UP 5m)</strong><br>${fmt(p5,3)}</div>
     <div><strong>Confidence</strong><br>${fmt(data.prediction.confidence,2)}</div>
     <div><strong>Live Slug</strong><br>${meta.slug || '-'}</div>
-    <div><strong>Ends In</strong><br>${remainText}</div>
+    <div><strong>Ends In</strong><br><span id="remainTimer">${remainText}</span></div>
     <div><strong>Question</strong><br>${meta.question || '-'}</div>
   `;
 
@@ -139,8 +141,21 @@ function renderPending() {
   pendingInfoEl.textContent = `Pending ${pending.marketId} | Pred: ${pending.predSide} | Entry YES: ${fmt(pending.entryYes)} | settles in ${left}s`;
 }
 
+function tickMarketTimer() {
+  if (marketRemainingSec == null) return;
+  marketRemainingSec = Math.max(0, marketRemainingSec - 1);
+  const el = document.getElementById('remainTimer');
+  if (el) el.textContent = `${marketRemainingSec}s`;
+
+  // auto-refresh market snapshot when timer reaches zero
+  if (marketRemainingSec === 0) {
+    refreshPrediction().catch(() => {});
+  }
+}
+
 renderHistory();
 renderPending();
 refreshPrediction();
 setInterval(settlePendingIfReady, 3000);
 setInterval(renderPending, 1000);
+setInterval(tickMarketTimer, 1000);
