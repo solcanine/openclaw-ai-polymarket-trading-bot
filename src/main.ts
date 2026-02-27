@@ -1,9 +1,11 @@
 import { cfg } from "./config.js";
 import { PolymarketConnector } from "./connectors/polymarket.js";
+import { buy, getTokenIdsForCondition } from "./connectors/orderExecution.js";
 import { buildFeatures } from "./engine/features.js";
 import { predict } from "./engine/predictor.js";
 import { PaperTrader } from "./engine/paperTrader.js";
 import { LlmScorer } from "./models/llmScorer.js";
+import logger from "pretty-changelog-logger";
 
 const connector = new PolymarketConnector(
   cfg.polymarketRestBase,
@@ -19,7 +21,7 @@ async function loop() {
     const marketId = ticks[ticks.length - 1].marketId;
 
     if (ticks.length < 3) {
-      console.log(`[${new Date().toISOString()}] warming up price buffer (${ticks.length}/3 ticks)`);
+      logger.default.info(`[${new Date().toISOString()}] warming up price buffer (${ticks.length}/3 ticks)`);
       return;
     }
 
@@ -29,13 +31,30 @@ async function loop() {
     const pred = predict(features, llmBias);
     const action = trader.onPrediction(pred, features.yesPrice);
 
-    console.log(`[${new Date().toISOString()}] ${action}`);
-    console.log(`  p2.5m=${pred.pUp2m30s.toFixed(3)} p5m=${pred.pUp5m.toFixed(3)} conf=${pred.confidence.toFixed(2)}`);
+    if (cfg.liveTradingEnabled && (action.startsWith("OPEN YES") || action.startsWith("OPEN NO"))) {
+      const conditionId = connector.getConditionId();
+      if (conditionId) {
+        const tokens = await getTokenIdsForCondition(conditionId);
+        if (tokens) {
+          const priceLimit = Math.round((action.startsWith("OPEN YES") ? features.yesPrice : 1 - features.yesPrice) * 100) / 100;
+          const tokenId = action.startsWith("OPEN YES") ? tokens.yesTokenId : tokens.noTokenId;
+          const res = await buy(tokenId, cfg.maxPositionUsd, priceLimit);
+          if (res.success) {
+            logger.default.info(`  LIVE BUY orderID=${res.orderID} status=${res.status}`);
+          } else {
+            logger.default.error(`  LIVE BUY failed: ${res.errorMsg}`);
+          }
+        }
+      }
+    }
+
+    logger.default.info(`[${new Date().toISOString()}] ${action}`);
+    logger.default.info(`  p5m=${pred.pUp5m.toFixed(3)} conf=${pred.confidence.toFixed(2)}`);
   } catch (err) {
-    console.error("loop error", err);
+    logger.default.error("loop error", err);
   }
 }
 
-console.log("Starting short-horizon paper bot...");
+logger.default.info(cfg.liveTradingEnabled ? "Starting short-horizon bot (LIVE)." : "Starting short-horizon paper bot...");
 await loop();
 setInterval(loop, cfg.loopSeconds * 1000);

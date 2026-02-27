@@ -16,6 +16,12 @@ let pending = JSON.parse(localStorage.getItem('pm_compare_pending') || 'null');
 
 function sideFromProb(p){ return p >= 0.5 ? 'YES' : 'NO'; }
 function fmt(n,d=4){ return Number(n).toFixed(d); }
+function fmtCountdown(sec){
+  const s = Math.max(0, Number(sec||0));
+  const mm = String(Math.floor(s/60)).padStart(1,'0');
+  const ss = String(s%60).padStart(2,'0');
+  return `${mm}:${ss}`;
+}
 
 async function refreshPrediction(){
   statusEl.textContent = 'loading...';
@@ -24,19 +30,17 @@ async function refreshPrediction(){
   lastSnapshot = data;
 
   const p5 = data.prediction.pUp5m;
-  const p25 = data.prediction.pUp2m30s;
   const side = sideFromProb(p5);
 
   const meta = data.marketMeta || {};
   const remain = Number(meta.remainingSec ?? -1);
   marketRemainingSec = remain >= 0 ? remain : null;
-  const remainText = remain >= 0 ? `${remain}s` : 'n/a';
+  const remainText = remain >= 0 ? fmtCountdown(remain) : 'n/a';
 
   snapshotEl.innerHTML = `
     <div><strong>Market</strong><br>${data.marketId}</div>
     <div><strong>Current YES</strong><br>${fmt(data.currentYes)}</div>
     <div><strong>Pred Side (5m)</strong><br>${side}</div>
-    <div><strong>P(UP 2.5m)</strong><br>${fmt(p25,3)}</div>
     <div><strong>P(UP 5m)</strong><br>${fmt(p5,3)}</div>
     <div><strong>Confidence</strong><br>${fmt(data.prediction.confidence,2)}</div>
     <div><strong>Live Slug</strong><br>${meta.slug || '-'}</div>
@@ -145,7 +149,7 @@ function tickMarketTimer() {
   if (marketRemainingSec == null) return;
   marketRemainingSec = Math.max(0, marketRemainingSec - 1);
   const el = document.getElementById('remainTimer');
-  if (el) el.textContent = `${marketRemainingSec}s`;
+  if (el) el.textContent = fmtCountdown(marketRemainingSec);
 
   // auto-refresh market snapshot when timer reaches zero
   if (marketRemainingSec === 0) {

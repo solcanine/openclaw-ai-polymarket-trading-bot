@@ -10,5 +10,18 @@ export const cfg = {
   maxPositionUsd: Number(process.env.MAX_POSITION_USD ?? 100),
   edgeThreshold: Number(process.env.EDGE_THRESHOLD ?? 0.03),
   polymarketMarketSlug: process.env.POLYMARKET_MARKET_SLUG,
-  polymarketMarketId: process.env.POLYMARKET_MARKET_ID
+  polymarketMarketId: process.env.POLYMARKET_MARKET_ID,
+  // CLOB order execution (optional; leave unset for paper-only)
+  clobApiUrl: process.env.CLOB_API_URL ?? "https://clob.polymarket.com",
+  clobChainId: Number(process.env.CLOB_CHAIN_ID ?? 137),
+  privateKey: process.env.PRIVATE_KEY,
+  clobApiKey: process.env.CLOB_API_KEY,
+  clobSecret: process.env.CLOB_SECRET,
+  clobPassphrase: process.env.CLOB_PASS_PHRASE,
+  liveTradingEnabled: !!(
+    process.env.PRIVATE_KEY &&
+    process.env.CLOB_API_KEY &&
+    process.env.CLOB_SECRET &&
+    process.env.CLOB_PASS_PHRASE
+  )
 };

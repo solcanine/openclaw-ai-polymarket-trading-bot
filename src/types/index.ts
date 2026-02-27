@@ -33,7 +33,6 @@ export interface FeatureVector {
 
 export interface Prediction {
   marketId: string;
-  pUp2m30s: number;
   pUp5m: number;
   confidence: number;
   reason: string;
