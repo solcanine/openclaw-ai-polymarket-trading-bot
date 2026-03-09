@@ -46,11 +46,7 @@ export class PolymarketConnector {
   private history: MarketTick[] = [];
   private lastMarketRefreshMs = 0;
 
-  constructor(
-    private readonly baseUrl: string,
-    private readonly marketSlug?: string,
-    private readonly marketId?: string
-  ) {}
+  constructor(private readonly baseUrl: string) {}
 
   async getMarketTicks(limit = 15): Promise<MarketTick[]> {
     const market = await this.resolveMarket();
@@ -157,26 +153,6 @@ export class PolymarketConnector {
     const shouldRefresh = !this.selectedMarket || this.selectedMarket.closed || (now - this.lastMarketRefreshMs > 5000);
     if (!shouldRefresh && this.selectedMarket) return this.selectedMarket;
 
-    if (this.marketSlug) {
-      const arr = await this.fetchJson<GammaMarket[]>(`${this.baseUrl}/markets?slug=${encodeURIComponent(this.marketSlug)}`);
-      if (arr.length) {
-        this.selectedMarket = arr[0];
-        this.selectedSlug = arr[0].slug || this.marketSlug;
-        this.lastMarketRefreshMs = now;
-        return arr[0];
-      }
-    }
-
-    if (this.marketId) {
-      const arr = await this.fetchJson<GammaMarket[]>(`${this.baseUrl}/markets?id=${encodeURIComponent(this.marketId)}`);
-      if (arr.length) {
-        this.selectedMarket = arr[0];
-        this.selectedSlug = arr[0].slug || null;
-        this.lastMarketRefreshMs = now;
-        return arr[0];
-      }
-    }
-
     // Prefer deterministic current 5m BTC market based on current time bucket
     const nowSec = Math.floor(now / 1000);
     const bucketStart = Math.floor(nowSec / 300) * 300;
@@ -213,7 +189,7 @@ export class PolymarketConnector {
     });
 
     if (!candidates.length) {
-      throw new Error("No active BTC up/down market found. Set POLYMARKET_MARKET_SLUG manually.");
+      throw new Error("No active BTC up/down market found.");
     }
 
     candidates.sort((a, b) => new Date(a.endDate || 0).getTime() - new Date(b.endDate || 0).getTime());

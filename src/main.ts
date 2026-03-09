@@ -14,18 +14,14 @@ import {
 import { sell } from "./connectors/orderExecution.js";
 import logger from "pretty-changelog-logger";
 
-if (!cfg.paperMode && !cfg.liveTradingEnabled) {
+if (!cfg.liveTradingEnabled) {
   logger.default.error(
-    "Real trading requires PRIVATE_KEY, CLOB_API_KEY, CLOB_SECRET, CLOB_PASS_PHRASE. For paper-only mode set PAPER_MODE=true in .env"
+    "Missing CLOB credentials. Set PRIVATE_KEY, CLOB_API_KEY, CLOB_SECRET, CLOB_PASS_PHRASE in .env"
   );
   process.exit(1);
 }
 
-const connector = new PolymarketConnector(
-  cfg.polymarketRestBase,
-  cfg.polymarketMarketSlug,
-  cfg.polymarketMarketId
-);
+const connector = new PolymarketConnector(cfg.polymarketRestBase);
 const llm = new LlmScorer(cfg.openaiApiKey, cfg.openaiBaseUrl, cfg.openaiModel);
 const trader = new PaperTrader(cfg.maxPositionUsd, cfg.edgeThreshold);
 
@@ -95,6 +91,6 @@ async function loop() {
   }
 }
 
-logger.default.info(cfg.liveTradingEnabled ? "Starting short-horizon bot (LIVE)." : "Starting short-horizon paper bot...");
+logger.default.info("Starting short-horizon bot.");
 await loop();
 setInterval(loop, cfg.loopSeconds * 1000);

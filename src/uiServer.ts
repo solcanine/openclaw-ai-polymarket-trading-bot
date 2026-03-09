@@ -12,11 +12,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const uiDir = path.resolve(__dirname, "../ui");
 
-const connector = new PolymarketConnector(
-  cfg.polymarketRestBase,
-  cfg.polymarketMarketSlug,
-  cfg.polymarketMarketId
-);
+const connector = new PolymarketConnector(cfg.polymarketRestBase);
 const llm = new LlmScorer(cfg.openaiApiKey, cfg.openaiBaseUrl, cfg.openaiModel);
 
 async function getSnapshot() {
