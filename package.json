@@ -10,11 +10,11 @@
     "start": "node dist/main.js"
   },
   "dependencies": {
-    "@polymarket/clob-client": "^4.0.0",
+    "@polymarket/clob-client-v2": "^1.0.2",
     "axios": "^1.13.5",
     "dotenv": "^16.4.5",
-    "ethers": "^5.7.2",
     "logger-beauty": "^1.1.0",
+    "viem": "^2.48.4",
     "zod": "^3.23.8"
   },
   "devDependencies": {

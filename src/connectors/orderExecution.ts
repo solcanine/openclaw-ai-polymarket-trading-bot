@@ -1,15 +1,48 @@
-import { ClobClient, Side, OrderType } from "@polymarket/clob-client";
-import { Wallet } from "ethers";
-import type { ApiKeyCreds } from "@polymarket/clob-client";
+import {
+  ClobClient,
+  Side,
+  OrderType,
+  Chain,
+  type ApiKeyCreds
+} from "@polymarket/clob-client-v2";
+import { createWalletClient, http } from "viem";
+import { privateKeyToAccount } from "viem/accounts";
+import { polygon, polygonAmoy, type Chain as ViemChain } from "viem/chains";
 import { cfg } from "../config.js";
 
 let _publicClient: ClobClient | null = null;
 let _client: ClobClient | null = null;
 let _clientInit: Promise<ClobClient> | null = null;
 
+function toClobChain(id: number): Chain {
+  if (id === 137) return Chain.POLYGON;
+  if (id === 80002) return Chain.AMOY;
+  throw new Error(`Unsupported CLOB_CHAIN_ID ${id}. Use 137 (Polygon) or 80002 (Amoy).`);
+}
+
+function toViemChain(id: number): ViemChain {
+  if (id === 137) return polygon;
+  if (id === 80002) return polygonAmoy;
+  throw new Error(`Unsupported CLOB_CHAIN_ID ${id}. Use 137 (Polygon) or 80002 (Amoy).`);
+}
+
+function walletClientFromPrivateKey() {
+  const raw = cfg.privateKey?.trim() ?? "";
+  const with0x = raw.startsWith("0x") ? raw : `0x${raw}`;
+  const account = privateKeyToAccount(with0x as `0x${string}`);
+  return createWalletClient({
+    account,
+    chain: toViemChain(cfg.clobChainId),
+    transport: http()
+  });
+}
+
 function getPublicClient(): ClobClient {
   if (!_publicClient) {
-    _publicClient = new ClobClient(cfg.clobApiUrl, cfg.clobChainId);
+    _publicClient = new ClobClient({
+      host: cfg.clobApiUrl,
+      chain: toClobChain(cfg.clobChainId)
+    });
   }
   return _publicClient;
 }
@@ -29,7 +62,8 @@ async function getClient(): Promise<ClobClient> {
     if (!cfg.privateKey?.trim()) {
       throw new Error("Live trading needs PRIVATE_KEY in .env");
     }
-    const signer = new Wallet(cfg.privateKey.trim());
+    const signer = walletClientFromPrivateKey();
+    const clobChain = toClobChain(cfg.clobChainId);
 
     let creds: ApiKeyCreds;
     if (hasManualClobCreds()) {
@@ -39,11 +73,16 @@ async function getClient(): Promise<ClobClient> {
         passphrase: cfg.clobPassphrase!.trim()
       };
     } else {
-      const l1 = new ClobClient(cfg.clobApiUrl, cfg.clobChainId, signer);
+      const l1 = new ClobClient({ host: cfg.clobApiUrl, chain: clobChain, signer });
       creds = await l1.createOrDeriveApiKey();
     }
 
-    _client = new ClobClient(cfg.clobApiUrl, cfg.clobChainId, signer, creds);
+    _client = new ClobClient({
+      host: cfg.clobApiUrl,
+      chain: clobChain,
+      signer,
+      creds
+    });
     return _client;
   })();
 

@@ -115,8 +115,10 @@ export function validateBotEnv(): void {
     process.exit(1);
   }
 
-  if (cfg.clobChainId !== 137) {
-    console.warn(`CLOB_CHAIN_ID is ${cfg.clobChainId} (Polymarket mainnet is usually 137).`);
+  if (cfg.clobChainId !== 137 && cfg.clobChainId !== 80002) {
+    console.warn(
+      `CLOB_CHAIN_ID is ${cfg.clobChainId} (use 137 for Polygon mainnet or 80002 for Amoy testnet).`
+    );
   }
 
   console.log("Environment OK — starting bot.");
