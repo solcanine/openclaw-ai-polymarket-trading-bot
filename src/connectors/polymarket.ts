@@ -167,7 +167,9 @@ export class PolymarketConnector {
       }
     }
 
-    const all = await this.fetchJson<GammaMarket[]>(`${this.baseUrl}/markets?closed=false&active=true&limit=1000&offset=500`);
+    const all = await this.fetchJson<GammaMarket[]>(
+      `${this.baseUrl}/markets?closed=false&active=true&limit=500&offset=0`
+    );
     const candidates = all.filter((m) => {
       const q = `${m.question || ""} ${m.slug || ""}`.toLowerCase();
       return (q.includes("bitcoin") || q.includes("btc")) && q.includes("up or down");
@@ -204,7 +206,9 @@ export class PolymarketConnector {
   }
 
   private async fetchRecentTrades(limit = 200): Promise<DataTrade[]> {
-    const res = await fetch(`https://data-api.polymarket.com/trades?limit=${limit}`);
+    const cap = Math.min(Math.max(1, limit), 500);
+    const base = cfg.polymarketDataApiBase.replace(/\/$/, "");
+    const res = await fetch(`${base}/trades?limit=${cap}`);
     if (!res.ok) return [];
     return (await res.json()) as DataTrade[];
   }

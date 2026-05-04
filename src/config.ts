@@ -1,7 +1,14 @@
 import "dotenv/config";
 
+function envBool(v: string | undefined, defaultVal = false): boolean {
+  if (v === undefined) return defaultVal;
+  const s = v.trim().toLowerCase();
+  return s === "1" || s === "true" || s === "yes";
+}
+
 export const cfg = {
   polymarketRestBase: process.env.POLYMARKET_REST_BASE ?? "https://gamma-api.polymarket.com",
+  polymarketDataApiBase: process.env.POLYMARKET_DATA_API_BASE ?? "https://data-api.polymarket.com",
   binanceRestBase: process.env.BINANCE_REST_BASE ?? "https://fapi.binance.com",
   openaiApiKey: process.env.OPENAI_API_KEY,
   openaiBaseUrl: process.env.OPENAI_BASE_URL ?? "https://api.openai.com/v1",
@@ -22,6 +29,10 @@ export const cfg = {
   walletWinrateCacheTtlSec: Number(process.env.WALLET_WINRATE_CACHE_TTL_SEC ?? 600),
   clobApiUrl: process.env.CLOB_API_URL ?? "https://clob.polymarket.com",
   clobChainId: Number(process.env.CLOB_CHAIN_ID ?? 137),
+  clobSignatureType: (process.env.CLOB_SIGNATURE_TYPE ?? "EOA").trim(),
+  clobFunderAddress: (process.env.CLOB_FUNDER_ADDRESS ?? "").trim() || undefined,
+  clobBuilderCode: (process.env.CLOB_BUILDER_CODE ?? "").trim() || undefined,
+  clobUseServerTime: envBool(process.env.CLOB_USE_SERVER_TIME, false),
   privateKey: process.env.PRIVATE_KEY,
   clobApiKey: process.env.CLOB_API_KEY,
   clobSecret: process.env.CLOB_SECRET,

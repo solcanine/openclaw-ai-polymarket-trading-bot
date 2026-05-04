@@ -3,12 +3,17 @@ import {
   Side,
   OrderType,
   Chain,
-  type ApiKeyCreds
+  SignatureTypeV2,
+  type ApiKeyCreds,
+  type BuilderConfig,
+  type ClobToken,
+  type MarketDetails
 } from "@polymarket/clob-client-v2";
 import { createWalletClient, http } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { polygon, polygonAmoy, type Chain as ViemChain } from "viem/chains";
 import { cfg } from "../config.js";
+import { parseClobSignatureLabel, signatureTypeV2FromLabel } from "../clobSignature.js";
 
 let _publicClient: ClobClient | null = null;
 let _client: ClobClient | null = null;
@@ -24,6 +29,30 @@ function toViemChain(id: number): ViemChain {
   if (id === 137) return polygon;
   if (id === 80002) return polygonAmoy;
   throw new Error(`Unsupported CLOB_CHAIN_ID ${id}. Use 137 (Polygon) or 80002 (Amoy).`);
+}
+
+function clobAuthOptions(): {
+  signatureType: SignatureTypeV2;
+  funderAddress?: string;
+  builderConfig?: BuilderConfig;
+  useServerTime?: boolean;
+} {
+  const label = parseClobSignatureLabel(cfg.clobSignatureType);
+  const signatureType = signatureTypeV2FromLabel(label);
+  const funder =
+    label === "EOA"
+      ? cfg.clobFunderAddress?.trim() || undefined
+      : cfg.clobFunderAddress?.trim() || undefined;
+  const builderCode = cfg.clobBuilderCode?.trim();
+  const builderConfig: BuilderConfig | undefined = builderCode
+    ? { builderCode }
+    : undefined;
+  return {
+    signatureType,
+    funderAddress: funder,
+    builderConfig,
+    useServerTime: cfg.clobUseServerTime ? true : undefined
+  };
 }
 
 function walletClientFromPrivateKey() {
@@ -64,6 +93,7 @@ async function getClient(): Promise<ClobClient> {
     }
     const signer = walletClientFromPrivateKey();
     const clobChain = toClobChain(cfg.clobChainId);
+    const auth = clobAuthOptions();
 
     let creds: ApiKeyCreds;
     if (hasManualClobCreds()) {
@@ -73,7 +103,12 @@ async function getClient(): Promise<ClobClient> {
         passphrase: cfg.clobPassphrase!.trim()
       };
     } else {
-      const l1 = new ClobClient({ host: cfg.clobApiUrl, chain: clobChain, signer });
+      const l1 = new ClobClient({
+        host: cfg.clobApiUrl,
+        chain: clobChain,
+        signer,
+        ...auth
+      });
       creds = await l1.createOrDeriveApiKey();
     }
 
@@ -81,7 +116,8 @@ async function getClient(): Promise<ClobClient> {
       host: cfg.clobApiUrl,
       chain: clobChain,
       signer,
-      creds
+      creds,
+      ...auth
     });
     return _client;
   })();
@@ -96,16 +132,45 @@ async function getClient(): Promise<ClobClient> {
 
 export type TokenIds = { yesTokenId: string; noTokenId: string };
 
+function tokensFromClobMarketInfo(info: MarketDetails): TokenIds | null {
+  const raw = info.t ?? [];
+  const tokens = raw.filter((x): x is ClobToken => x != null && typeof x.t === "string");
+  if (tokens.length < 2) return null;
+
+  const yesToken = tokens.find((x) => /yes|up/i.test(x.o ?? ""));
+  const noToken = tokens.find((x) => /no|down/i.test(x.o ?? ""));
+  if (yesToken && noToken) {
+    return { yesTokenId: yesToken.t, noTokenId: noToken.t };
+  }
+  if (tokens.length >= 2) {
+    return { yesTokenId: tokens[0].t, noTokenId: tokens[1].t };
+  }
+  return null;
+}
+
+function tokensFromGammaStyleMarket(market: unknown): TokenIds | null {
+  const tokens = (market as { tokens?: Array<{ outcome?: string; token_id?: string; tokenId?: string }> }).tokens;
+  if (!tokens || tokens.length < 2) return null;
+  const tid = (t: { token_id?: string; tokenId?: string }) => t.token_id ?? t.tokenId ?? "";
+  const yesToken = tokens.find((t) => /yes|up/i.test(t.outcome ?? ""));
+  const noToken = tokens.find((t) => /no|down/i.test(t.outcome ?? ""));
+  if (!yesToken || !noToken) return null;
+  const yesId = tid(yesToken);
+  const noId = tid(noToken);
+  if (!yesId || !noId) return null;
+  return { yesTokenId: yesId, noTokenId: noId };
+}
+
 export async function getTokenIdsForCondition(conditionId: string): Promise<TokenIds | null> {
+  const client = getPublicClient();
   try {
-    const client = getPublicClient();
+    const info = await client.getClobMarketInfo(conditionId);
+    const fromInfo = tokensFromClobMarketInfo(info);
+    if (fromInfo) return fromInfo;
+  } catch {}
+  try {
     const market = await client.getMarket(conditionId);
-    const tokens = (market as { tokens?: Array<{ outcome: string; token_id: string }> }).tokens;
-    if (!tokens || tokens.length < 2) return null;
-    const yesToken = tokens.find((t) => /yes|up/i.test(t.outcome ?? ""));
-    const noToken = tokens.find((t) => /no|down/i.test(t.outcome ?? ""));
-    if (!yesToken || !noToken) return null;
-    return { yesTokenId: yesToken.token_id, noTokenId: noToken.token_id };
+    return tokensFromGammaStyleMarket(market);
   } catch {
     return null;
   }
@@ -150,7 +215,8 @@ export async function placeOrder(params: PlaceOrderParams): Promise<PlaceOrderRe
         tokenID: tokenId,
         side: sideEnum,
         amount: size,
-        price
+        price,
+        orderType: marketType
       },
       undefined,
       marketType
@@ -195,4 +261,25 @@ export async function sell(
     price: priceLimit,
     orderType: "FOK"
   });
+}
+
+export async function verifyClobReadiness(conditionId?: string): Promise<{
+  ok: boolean;
+  version?: number;
+  tokenProbe?: TokenIds | null;
+  error?: string;
+}> {
+  try {
+    const client = getPublicClient();
+    await client.getOk();
+    const version = await client.getVersion();
+    let tokenProbe: TokenIds | null | undefined;
+    if (conditionId?.trim()) {
+      tokenProbe = await getTokenIdsForCondition(conditionId.trim());
+    }
+    return { ok: true, version, tokenProbe };
+  } catch (e: unknown) {
+    const err = e as Error;
+    return { ok: false, error: err.message ?? String(e) };
+  }
 }

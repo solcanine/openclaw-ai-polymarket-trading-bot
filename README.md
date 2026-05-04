@@ -107,14 +107,19 @@ Copy `.env.example` to `.env` and adjust as needed.
 |----------|-------------|--------|
 | **Data sources** | | |
 | `POLYMARKET_REST_BASE` | Gamma API base URL | `https://gamma-api.polymarket.com` |
+| `POLYMARKET_DATA_API_BASE` | Data API base (trades / whale flow) | `https://data-api.polymarket.com` |
 | `BINANCE_REST_BASE` | Binance Futures REST URL | `https://fapi.binance.com` |
-| **CLOB** | | |
+| **CLOB (V2 SDK)** | | |
 | `PRIVATE_KEY` | Wallet private key (hex, 64 chars) | (required) |
 | `CLOB_API_KEY` | L2 API key | (optional — derived from `PRIVATE_KEY` if omitted) |
 | `CLOB_SECRET` | L2 secret | (optional — set all three or omit all three) |
 | `CLOB_PASS_PHRASE` | L2 passphrase | (optional) |
 | `CLOB_API_URL` | CLOB API base | `https://clob.polymarket.com` |
 | `CLOB_CHAIN_ID` | Chain ID (Polygon mainnet) | `137` |
+| `CLOB_SIGNATURE_TYPE` | `EOA` (default), `POLY_PROXY`, `POLY_GNOSIS_SAFE`, or `POLY_1271` | `EOA` |
+| `CLOB_FUNDER_ADDRESS` | Required when not EOA: address that holds collateral | (empty) |
+| `CLOB_BUILDER_CODE` | Optional `bytes32` builder attribution | (empty) |
+| `CLOB_USE_SERVER_TIME` | Use server time for L2 signing (`true` / `false`) | `false` |
 | `CLOSE_AFTER_SECONDS` | Optional timed close from open time (0 = disabled) | `0` |
 | **Optional LLM** | | |
 | `OPENAI_API_KEY` | If set, features are sent to the LLM for an extra bias signal | (empty = no LLM) |
@@ -136,7 +141,9 @@ Copy `.env.example` to `.env` and adjust as needed.
 | `WALLET_WINRATE_TIMEOUT_MS` | Wallet API timeout | `3000` |
 | `WALLET_WINRATE_CACHE_TTL_SEC` | Winrate cache TTL | `600` |
 
-**Startup:** `validateBotEnv` checks `PRIVATE_KEY`, strategy ranges, and URLs. If `CLOB_API_KEY` / `CLOB_SECRET` / `CLOB_PASS_PHRASE` are **all omitted**, the bot calls Polymarket’s **`createOrDeriveApiKey()`** on first order. Open positions: `open-positions.json` (gitignored).
+**Startup:** `validateBotEnv` checks `PRIVATE_KEY`, strategy ranges, URLs, and CLOB signing options. If `CLOB_API_KEY` / `CLOB_SECRET` / `CLOB_PASS_PHRASE` are **all omitted**, the bot calls Polymarket’s **`createOrDeriveApiKey()`** on first order. Open positions: `open-positions.json` (gitignored).
+
+**CLOB smoke test:** `npm run clob:verify` (optional condition id as `0x` + 64 hex) hits `getOk` / `version` and can resolve YES/NO token ids via `getClobMarketInfo`.
 
 ---
 
@@ -189,7 +196,9 @@ The bot **places real orders** when the signal is OPEN YES or OPEN NO:
 | `src/envCheck.ts` | Startup validation for bot (`validateBotEnv`) and UI (`validateUiEnv`) |
 | `src/types/index.ts` | Shared types: `MarketTick`, `WhaleFlow`, `FeatureVector`, `Prediction`, `LivePosition`, etc. |
 | `src/connectors/polymarket.ts` | Gamma API (market resolution, YES price) + Data API (whale flow). `getConditionId()` for CLOB orders |
-| `src/connectors/orderExecution.ts` | CLOB client wrapper: `placeOrder`, `buy`, `sell`, `getTokenIdsForCondition` |
+| `src/connectors/orderExecution.ts` | CLOB V2 client: `placeOrder`, `buy`, `sell`, `getTokenIdsForCondition`, `verifyClobReadiness` |
+| `src/clobSignature.ts` | Maps `CLOB_SIGNATURE_TYPE` → Polymarket `SignatureTypeV2` |
+| `src/clobVerify.ts` | `npm run clob:verify` — read-only CLOB smoke test |
 | `src/connectors/walletPerformance.ts` | External wallet winrate lookup (batch + cache + normalize) |
 | `src/engine/features.ts` | Builds EMA/RSI + winrate-filtered whale pressure features |
 | `src/engine/predictor.ts` | Combines trend + whale pressure + LLM bias → pUp5m, confidence, side |
@@ -228,6 +237,7 @@ The bot **places real orders** when the signal is OPEN YES or OPEN NO:
 | `npm run ui` | 📊 Start the Compare UI server on port 8787 |
 | `npm run build` | 📦 Compile TypeScript to `dist/` |
 | `npm start` | ▶️ Run compiled bot: `node dist/main.js` |
+| `npm run clob:verify` | 🔌 Read-only CLOB check (`getOk`, `version`, optional token resolution) |
 
 ---
 

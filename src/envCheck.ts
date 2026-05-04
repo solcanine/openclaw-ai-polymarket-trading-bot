@@ -1,4 +1,5 @@
 import { cfg } from "./config.js";
+import { tryParseClobSignatureLabel } from "./clobSignature.js";
 
 const PLACEHOLDER_VALUES = new Set([
   "your_private_key",
@@ -25,6 +26,11 @@ function validHttpUrl(s: string): boolean {
   }
 }
 
+function validEthAddress(a: string): boolean {
+  return /^0x[a-fA-F0-9]{40}$/.test(a.trim());
+}
+
+
 export function validateBotEnv(): void {
   const errors: string[] = [];
   const pk = (process.env.PRIVATE_KEY ?? "").trim();
@@ -37,11 +43,9 @@ export function validateBotEnv(): void {
   else if (isPlaceholder(pk)) errors.push("PRIVATE_KEY is still the example placeholder — set your real key.");
 
   const clobSet = [key, secret, pass].filter(Boolean).length;
-  if (clobSet === 0) {
-    // OK — CLOB creds will be created or derived at runtime via createOrDeriveApiKey()
-  } else if (clobSet < 3) {
+  if (clobSet > 0 && clobSet < 3) {
     errors.push("Either omit CLOB_API_KEY, CLOB_SECRET, CLOB_PASS_PHRASE (auto-derive) or set all three.");
-  } else {
+  } else if (clobSet === 3) {
     if (isPlaceholder(key)) errors.push("CLOB_API_KEY is still a placeholder.");
     if (isPlaceholder(secret)) errors.push("CLOB_SECRET is still a placeholder.");
     if (isPlaceholder(pass)) errors.push("CLOB_PASS_PHRASE is still a placeholder.");
@@ -50,8 +54,34 @@ export function validateBotEnv(): void {
   if (!validHttpUrl(cfg.polymarketRestBase)) {
     errors.push(`POLYMARKET_REST_BASE must be http(s): got "${cfg.polymarketRestBase}"`);
   }
+  if (!validHttpUrl(cfg.polymarketDataApiBase)) {
+    errors.push(`POLYMARKET_DATA_API_BASE must be http(s): got "${cfg.polymarketDataApiBase}"`);
+  }
   if (!validHttpUrl(cfg.clobApiUrl)) {
     errors.push(`CLOB_API_URL must be http(s): got "${cfg.clobApiUrl}"`);
+  }
+
+  const sigNorm = tryParseClobSignatureLabel(cfg.clobSignatureType);
+  if (!sigNorm) {
+    errors.push(
+      `CLOB_SIGNATURE_TYPE must be one of: EOA, POLY_PROXY, POLY_GNOSIS_SAFE, POLY_1271 (got "${cfg.clobSignatureType}")`
+    );
+  }
+  if (sigNorm && sigNorm !== "EOA") {
+    const f = cfg.clobFunderAddress?.trim() ?? "";
+    if (!f) {
+      errors.push(
+        `CLOB_FUNDER_ADDRESS is required when CLOB_SIGNATURE_TYPE is ${sigNorm} (Polymarket proxy/safe trading).`
+      );
+    } else if (!validEthAddress(f)) {
+      errors.push(`CLOB_FUNDER_ADDRESS must be a 0x-prefixed 40-hex address (got "${f}").`);
+    }
+  } else if (cfg.clobFunderAddress?.trim() && !validEthAddress(cfg.clobFunderAddress)) {
+    errors.push(`CLOB_FUNDER_ADDRESS must be a valid 0x address when set (got "${cfg.clobFunderAddress}").`);
+  }
+  const bc = cfg.clobBuilderCode?.trim() ?? "";
+  if (bc && !/^0x[a-fA-F0-9]{64}$/.test(bc)) {
+    errors.push(`CLOB_BUILDER_CODE must be empty or a 0x-prefixed 32-byte hex string (bytes32).`);
   }
 
   if (!Number.isFinite(cfg.loopSeconds) || cfg.loopSeconds < 1 || cfg.loopSeconds > 3600) {
@@ -129,6 +159,9 @@ export function validateUiEnv(): void {
 
   if (!validHttpUrl(cfg.polymarketRestBase)) {
     errors.push(`POLYMARKET_REST_BASE must be a valid http(s) URL.`);
+  }
+  if (!validHttpUrl(cfg.polymarketDataApiBase)) {
+    errors.push(`POLYMARKET_DATA_API_BASE must be a valid http(s) URL.`);
   }
 
   const openaiKey = (process.env.OPENAI_API_KEY ?? "").trim();

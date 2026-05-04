@@ -6,7 +6,7 @@ type CacheEntry = {
 };
 
 const cache = new Map<string, CacheEntry>();
-const TRADE_LIMIT = 5000;
+const TRADE_LIMIT = 500;
 const MIN_MARKETS_FOR_CONFIDENCE = 5;
 
 function clamp01(v: number): number {
@@ -54,7 +54,8 @@ function signedYesNotional(t: TradeRow): number {
 }
 
 async function fetchRecentTrades(signal: AbortSignal): Promise<TradeRow[]> {
-  const res = await fetch(`https://data-api.polymarket.com/trades?limit=${TRADE_LIMIT}`, { signal });
+  const base = cfg.polymarketDataApiBase.replace(/\/$/, "");
+  const res = await fetch(`${base}/trades?limit=${TRADE_LIMIT}`, { signal });
   if (!res.ok) return [];
   return (await res.json()) as TradeRow[];
 }
